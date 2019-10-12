@@ -19,6 +19,7 @@ class Controller {
 			this.namespace = null;
 			this.mainPage = false;
 			this.translations = {};
+			this.contentIdentifier = null;
 
 			Controller.instance = this;
 
@@ -29,13 +30,25 @@ class Controller {
 			// Events
 			this.model.on( 'active', isActive => {
 				this.toggleLinkActiveState( isActive );
-				// Toggle a class for CSS to style links appropriately.
 				this.model.getContentWrapper()
 					.toggleClass( 'wwt-active', isActive );
+
+				// If we're deactivating, remove the state classes
+				if ( !isActive ) {
+					this.model.getContentWrapper()
+						.removeClass( 'wwt-ready' );
+				}
 			} );
+
 			// Events
 			this.model.on( 'enabled', isEnabled => {
 				this.getButton().toggle( isEnabled );
+			} );
+
+			this.model.on( 'state', state => {
+				// Toggle a class for CSS to style links appropriately.
+				this.model.getContentWrapper()
+					.toggleClass( 'wwt-ready', state === 'ready' );
 			} );
 		}
 
@@ -143,11 +156,6 @@ class Controller {
 			return $.Deferred().reject();
 		}
 
-		// Cache the current version.
-		// We might replace it in a minute, but if the user will
-		// shut the system down while we fetch, we want the
-		// original available.
-		this.model.cacheOriginal();
 		return this.loadDependencies().then( () => {
 			if ( !this.app ) {
 				// Only load after dependencies are loaded
@@ -165,7 +173,7 @@ class Controller {
 			return this.api.getData( window.location.href )
 				.then(
 					// Success handler.
-					() => {
+					result => {
 						// There could be time that passed between
 						// activating the promise request and getting the
 						// answer. During that time, the user may
@@ -178,10 +186,20 @@ class Controller {
 						// and the operation below will be re-triggered
 						// with the replacements
 						if ( this.model.isActive() ) {
-							// Insert modified HTML.
+							if (
+								this.contentIdentifier !== this.api.getContentRevisionIdentifier()
+							) {
+
+								// The content we get from the API has changed
+								this.app.resetContentFromHTML( result.extended_html );
+								this.contentIdentifier = this.api.getContentRevisionIdentifier();
+							}
+
+							// Cache original
 							this.model.cacheOriginal();
 							this.model.getContentWrapper()
-								.html( this.api.getReplacementHtml() );
+								.empty()
+								.append( this.app.getInteractiveContent() );
 							this.model.setState( 'ready' );
 						}
 
@@ -203,10 +221,17 @@ class Controller {
 			window.console.log( 'Who Wrote That: Could not dismiss. System is not active.' );
 			return;
 		}
+
+		if ( this.model.getState() === 'ready' ) {
+			// Detach the interactive content so we can keep the events and data on it
+			this.app.getInteractiveContent().detach();
+
+			// Append the original content
+			this.model.getContentWrapper()
+				.append( this.model.getOriginalContent() );
+		}
+
 		this.model.toggleActive( false );
-		// Revert back to the original content
-		this.model.getContentWrapper()
-			.html( this.model.getOriginalContent().html() );
 	}
 
 	/**
